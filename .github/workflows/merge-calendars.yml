@@ -1,4 +1,4 @@
-name: Merge Calendars and Upload via FTP
+name: Merge Calendars and Publish to GitHub Pages
 
 # ---------------------------------------------------------------------------
 # WHEN THIS RUNS
@@ -10,10 +10,28 @@ on:
     - cron: "0 * * * *"
   # Lets you manually trigger a run from the "Actions" tab, useful for testing.
   workflow_dispatch:
+  # Also republish whenever this workflow file or the script itself changes.
+  push:
+    branches: [main]
+
+# Permissions GitHub Pages deployment needs. Without these, the deploy step
+# will fail with a permissions error.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Prevents two runs from trying to deploy to Pages at the same time.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
 
 jobs:
-  merge-and-upload:
+  merge-and-publish:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       # 1. Check out this repo so the job can see merge_calendars.py
@@ -35,14 +53,19 @@ jobs:
       - name: Merge calendars
         run: python merge_calendars.py
 
-      # 5. Upload just the "output" folder's contents to your FTP server's
-      #    /htdocs folder. Credentials come from GitHub Secrets, never from
-      #    this file, so they stay private.
-      - name: Upload to FTP server
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+      # 5. Prepare the "output" folder to be published as a static site.
+      #    GitHub Pages requires this specific setup step.
+      - name: Set up Pages
+        uses: actions/configure-pages@v5
+
+      # 6. Package the "output" folder (which contains merged.ics) as the
+      #    thing that will be published.
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          server: ${{ secrets.FTP_HOST }}
-          username: ${{ secrets.FTP_USER }}
-          password: ${{ secrets.FTP_PASS }}
-          local-dir: ./output/
-          server-dir: /htdocs/
+          path: ./output
+
+      # 7. Actually publish it to GitHub Pages.
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
