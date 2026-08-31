@@ -7,11 +7,13 @@ This script:
    problems downstream:
      - Events that have no start date at all.
      - Events dated more than 100 years in the future.
+     - Events whose title or description contains the word "varsity"
+       (case-insensitive).
    Bad events are simply dropped, not repaired.
 3. Combines the remaining "clean" events from both calendars into one
    merged .ics file.
 4. Saves that merged file locally so the GitHub Actions workflow can then
-   upload it to your FTP server.
+   publish it to GitHub Pages.
 """
 
 import os
@@ -30,8 +32,8 @@ SOURCE_CALENDARS = [
 ]
 
 # Where the merged file goes. It lives in an "output" folder so the GitHub
-# Actions workflow can upload just this folder to FTP without touching
-# the rest of the repo (the .py/.txt/.yml files).
+# Actions workflow can publish just this folder to GitHub Pages without
+# publishing the rest of the repo (the .py/.txt/.yml files).
 OUTPUT_DIR = "output"
 OUTPUT_FILE = os.path.join(OUTPUT_DIR, "merged.ics")
 
@@ -40,6 +42,11 @@ OUTPUT_FILE = os.path.join(OUTPUT_DIR, "merged.ics")
 # corrupted/placeholder dates far in the future that break other calendar
 # apps, so we filter those out.
 MAX_YEARS_IN_FUTURE = 100
+
+# Any event whose title or description contains one of these words gets
+# dropped. Matching is case-insensitive, so "Varsity", "VARSITY", and
+# "varsity" are all caught. Add more words to this list if needed later.
+EXCLUDED_KEYWORDS = ["varsity"]
 
 
 def fetch_calendar(url):
@@ -91,6 +98,27 @@ def event_start_as_datetime(component):
     return value
 
 
+def event_contains_excluded_keyword(component):
+    """
+    Checks the event's title (SUMMARY) and description (DESCRIPTION) for
+    any of the words in EXCLUDED_KEYWORDS, ignoring case. Returns True if
+    a match is found (meaning this event should be dropped).
+    """
+    # Pull both fields as plain text. Either one might be missing, so we
+    # fall back to an empty string rather than crashing.
+    summary = str(component.get("summary", ""))
+    description = str(component.get("description", ""))
+
+    # Combine into one lowercase string so we only need to search once.
+    combined_text = (summary + " " + description).lower()
+
+    for keyword in EXCLUDED_KEYWORDS:
+        if keyword.lower() in combined_text:
+            return True
+
+    return False
+
+
 def is_event_safe_to_keep(component):
     """
     Decides whether one event should be kept. Returns True to keep it,
@@ -99,6 +127,7 @@ def is_event_safe_to_keep(component):
     Dropped if:
       - It has no start date at all, OR
       - Its start date is more than MAX_YEARS_IN_FUTURE years from now, OR
+      - Its title or description contains an excluded keyword (e.g. "varsity"), OR
       - Anything unexpected goes wrong while reading it (better to drop one
         odd event than let it break the whole merged calendar).
     """
@@ -114,6 +143,10 @@ def is_event_safe_to_keep(component):
 
         if years_in_future > MAX_YEARS_IN_FUTURE:
             print(f"  -> Dropping event dated too far in the future ({start}): {component.get('summary', 'Untitled event')}")
+            return False
+
+        if event_contains_excluded_keyword(component):
+            print(f"  -> Dropping event containing an excluded keyword: {component.get('summary', 'Untitled event')}")
             return False
 
         return True
