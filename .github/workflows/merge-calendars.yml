@@ -1,0 +1,48 @@
+name: Merge Calendars and Upload via FTP
+
+# ---------------------------------------------------------------------------
+# WHEN THIS RUNS
+# ---------------------------------------------------------------------------
+on:
+  schedule:
+    # Runs once an hour, on the hour. GitHub's cron scheduler runs in UTC,
+    # and busy periods can delay a run by a few minutes — that's normal.
+    - cron: "0 * * * *"
+  # Lets you manually trigger a run from the "Actions" tab, useful for testing.
+  workflow_dispatch:
+
+jobs:
+  merge-and-upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Check out this repo so the job can see merge_calendars.py
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # 2. Install Python
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 3. Install the packages the script needs
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # 4. Run the script — downloads, cleans, and merges the calendars into
+      #    output/merged.ics
+      - name: Merge calendars
+        run: python merge_calendars.py
+
+      # 5. Upload just the "output" folder's contents to your FTP server's
+      #    /htdocs folder. Credentials come from GitHub Secrets, never from
+      #    this file, so they stay private.
+      - name: Upload to FTP server
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USER }}
+          password: ${{ secrets.FTP_PASS }}
+          local-dir: ./output/
+          server-dir: /htdocs/
