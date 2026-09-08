@@ -7,8 +7,9 @@ This script:
    problems downstream:
      - Events that have no start date at all.
      - Events dated more than 100 years in the future.
-     - Events whose title or description contains the word "varsity"
-       (case-insensitive).
+     - Events whose title or description contains one of the excluded
+       words/phrases (currently "varsity" or "Freshman Practice"),
+       case-insensitive.
    Bad events are simply dropped, not repaired.
 3. Combines the remaining "clean" events from both calendars into one
    merged .ics file.
@@ -43,10 +44,10 @@ OUTPUT_FILE = os.path.join(OUTPUT_DIR, "merged.ics")
 # apps, so we filter those out.
 MAX_YEARS_IN_FUTURE = 100
 
-# Any event whose title or description contains one of these words gets
-# dropped. Matching is case-insensitive, so "Varsity", "VARSITY", and
-# "varsity" are all caught. Add more words to this list if needed later.
-EXCLUDED_KEYWORDS = ["varsity"]
+# Any event whose title or description contains one of these words/phrases
+# gets dropped. Matching is case-insensitive, so "Varsity", "VARSITY", and
+# "varsity" are all caught. Add more words/phrases to this list if needed later.
+EXCLUDED_KEYWORDS = ["varsity", "Freshman Practice"]
 
 
 def fetch_calendar(url):
@@ -101,8 +102,11 @@ def event_start_as_datetime(component):
 def event_contains_excluded_keyword(component):
     """
     Checks the event's title (SUMMARY) and description (DESCRIPTION) for
-    any of the words in EXCLUDED_KEYWORDS, ignoring case. Returns True if
-    a match is found (meaning this event should be dropped).
+    any of the words/phrases in EXCLUDED_KEYWORDS, ignoring case. A
+    "phrase" like "Freshman Practice" only matches if that exact sequence
+    of words appears together (not just "Freshman" and "Practice"
+    appearing separately). Returns True if a match is found (meaning this
+    event should be dropped).
     """
     # Pull both fields as plain text. Either one might be missing, so we
     # fall back to an empty string rather than crashing.
@@ -127,7 +131,8 @@ def is_event_safe_to_keep(component):
     Dropped if:
       - It has no start date at all, OR
       - Its start date is more than MAX_YEARS_IN_FUTURE years from now, OR
-      - Its title or description contains an excluded keyword (e.g. "varsity"), OR
+      - Its title or description contains an excluded word or phrase
+        (e.g. "varsity" or "Freshman Practice"), OR
       - Anything unexpected goes wrong while reading it (better to drop one
         odd event than let it break the whole merged calendar).
     """
