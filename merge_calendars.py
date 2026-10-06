@@ -10,6 +10,9 @@ This script:
      - Events whose title or description contains one of the excluded
        words/phrases (currently "varsity" or "Freshman Practice"),
        case-insensitive.
+     - Events whose title or description contains ALL the words in one of
+       the excluded word groups (currently "Freshman" + "home", and
+       "Freshman" + "away").
    Bad events are simply dropped, not repaired.
 3. Combines the remaining "clean" events from both calendars into one
    merged .ics file.
@@ -18,6 +21,7 @@ This script:
 """
 
 import os
+import re
 import requests
 from icalendar import Calendar
 from datetime import datetime, timezone, date
@@ -48,6 +52,15 @@ MAX_YEARS_IN_FUTURE = 100
 # gets dropped. Matching is case-insensitive, so "Varsity", "VARSITY", and
 # "varsity" are all caught. Add more words/phrases to this list if needed later.
 EXCLUDED_KEYWORDS = ["varsity", "Freshman Practice"]
+
+# An event is dropped only if it contains ALL the words in one of these
+# groups (anywhere in the title or description, in any order). Whole-word
+# matching, case-insensitive, so "home" won't accidentally match "homework"
+# and "away" won't match "faraway".
+EXCLUDED_WORD_COMBOS = [
+    ["Freshman", "home"],
+    ["Freshman", "away"],
+]
 
 
 def fetch_calendar(url):
@@ -99,25 +112,36 @@ def event_start_as_datetime(component):
     return value
 
 
+def contains_whole_word(text, word):
+    """Case-insensitive check for `word` as a standalone word in `text`."""
+    return re.search(rf"\b{re.escape(word)}\b", text, re.IGNORECASE) is not None
+
+
 def event_contains_excluded_keyword(component):
     """
-    Checks the event's title (SUMMARY) and description (DESCRIPTION) for
-    any of the words/phrases in EXCLUDED_KEYWORDS, ignoring case. A
-    "phrase" like "Freshman Practice" only matches if that exact sequence
-    of words appears together (not just "Freshman" and "Practice"
-    appearing separately). Returns True if a match is found (meaning this
-    event should be dropped).
+    Returns True if the event should be dropped because its title (SUMMARY)
+    or description (DESCRIPTION) contains either:
+      - one of the words/phrases in EXCLUDED_KEYWORDS (case-insensitive;
+        a phrase like "Freshman Practice" only matches if those words
+        appear together in that exact order), or
+      - every word from one of the groups in EXCLUDED_WORD_COMBOS
+        (e.g. "Freshman" AND "home").
     """
     # Pull both fields as plain text. Either one might be missing, so we
     # fall back to an empty string rather than crashing.
     summary = str(component.get("summary", ""))
     description = str(component.get("description", ""))
+    combined_text = summary + " " + description
 
-    # Combine into one lowercase string so we only need to search once.
-    combined_text = (summary + " " + description).lower()
-
+    # Single words/phrases (substring match, same as before).
+    lowered = combined_text.lower()
     for keyword in EXCLUDED_KEYWORDS:
-        if keyword.lower() in combined_text:
+        if keyword.lower() in lowered:
+            return True
+
+    # Groups of words that must ALL appear (whole-word match).
+    for combo in EXCLUDED_WORD_COMBOS:
+        if all(contains_whole_word(combined_text, word) for word in combo):
             return True
 
     return False
@@ -133,6 +157,8 @@ def is_event_safe_to_keep(component):
       - Its start date is more than MAX_YEARS_IN_FUTURE years from now, OR
       - Its title or description contains an excluded word or phrase
         (e.g. "varsity" or "Freshman Practice"), OR
+      - Its title or description contains every word of an excluded group
+        (e.g. "Freshman" AND "home"), OR
       - Anything unexpected goes wrong while reading it (better to drop one
         odd event than let it break the whole merged calendar).
     """
